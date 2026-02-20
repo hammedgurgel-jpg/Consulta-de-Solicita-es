@@ -1,0 +1,5 @@
+{
+  "name": "Consulta de Manutenção de Veículos",
+  "description": "Uma ferramenta para condutores consultarem o status de suas solicitações de manutenção.",
+  "requestFramePermissions": []
+}
