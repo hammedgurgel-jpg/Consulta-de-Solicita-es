@@ -2,70 +2,105 @@ import express from 'express';
 import { createServer as createViteServer } from 'vite';
 import { google } from 'googleapis';
 
+// Armazenamento em memória para os tokens. Em produção, use um banco de dados.
+let googleTokens: any = null;
+
 async function startServer() {
   const app = express();
   const PORT = 3000;
 
-  app.use(express.json());
+  if (!process.env.APP_URL) {
+    console.warn('A variável de ambiente APP_URL não está definida. O redirecionamento do OAuth pode falhar.');
+  }
 
-  // API routes FIRST
-  app.get('/api/health', (req, res) => {
-    res.json({ status: 'ok' });
+  const oauth2Client = new google.auth.OAuth2(
+    process.env.GOOGLE_CLIENT_ID,
+    process.env.GOOGLE_CLIENT_SECRET,
+    `${process.env.APP_URL}/api/auth/google/callback`
+  );
+
+  // Endpoint para iniciar o processo de autorização
+  app.get('/api/auth/google', (req, res) => {
+    const scopes = ['https://www.googleapis.com/auth/spreadsheets.readonly'];
+    const url = oauth2Client.generateAuthUrl({
+      access_type: 'offline',
+      scope: scopes,
+      prompt: 'consent', // Força a exibição da tela de consentimento para obter o refresh_token
+    });
+    res.redirect(url);
   });
 
+  // Endpoint que o Google chama após o usuário autorizar
+  app.get('/api/auth/google/callback', async (req, res) => {
+    const { code } = req.query;
+    try {
+      const { tokens } = await oauth2Client.getToken(code as string);
+      googleTokens = tokens;
+      oauth2Client.setCredentials(tokens);
+      console.log('Tokens obtidos com sucesso!');
+      res.redirect('/?auth_status=success');
+    } catch (error) {
+      console.error('Erro ao obter tokens:', error);
+      res.redirect('/?auth_status=error');
+    }
+  });
+
+  // Endpoint para verificar o status da autenticação
+  app.get('/api/auth/status', (req, res) => {
+    if (googleTokens && googleTokens.access_token) {
+      res.json({ isAuthenticated: true });
+    } else {
+      res.json({ isAuthenticated: false });
+    }
+  });
+
+  // Endpoint principal para buscar os dados
   app.get('/api/requests', async (req, res) => {
+    if (!googleTokens || !googleTokens.access_token) {
+      return res.status(401).json({ error: 'Aplicação não autorizada. Por favor, autentique-se.' });
+    }
+    oauth2Client.setCredentials(googleTokens);
+
     const { email } = req.query;
     if (!email) {
       return res.status(400).json({ error: 'Email is required' });
     }
 
     try {
-
-
-      const auth = new google.auth.GoogleAuth({
-        credentials: {
-          client_email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
-          private_key: process.env.GOOGLE_PRIVATE_KEY.replace(/\n/g, '\n'),
-        },
-        scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'],
-      });
-
-      const sheets = google.sheets({ version: 'v4', auth });
-
+      const sheets = google.sheets({ version: 'v4', auth: oauth2Client });
       const response = await sheets.spreadsheets.values.get({
         spreadsheetId: process.env.GOOGLE_SHEET_ID,
-        range: 'A:G', // Reading columns A through G to include the new structure
+        range: 'A:G',
       });
 
       const rows = response.data.values;
-      if (!rows) {
+      if (!rows || rows.length === 0) {
         return res.json([]);
       }
 
-      // Assumes first row is header and maps to the new column structure
       const requests = rows.slice(1).map(row => ({
-        // Column C: NÚMERO DE FROTA -> vehicle
-        // Column E: DESCREVA ABAIXO OS PROBLEMAS ENCONTRADOS -> problem
-        // Column F: Email -> email
-        // Column G: Status -> status
         vehicle: row[2],
         problem: row[4],
         email: row[5],
         status: row[6],
       }));
 
-      const userRequests = requests.filter(
-        req => req.email === email && req.status.toUpperCase() !== 'FINALIZADO'
-      );
+      const queryEmail = (email as string).trim().toLowerCase();
+      const userRequests = requests.filter(req => {
+        if (!req.email || !req.status) return false;
+        const sheetEmail = req.email.trim().toLowerCase();
+        const status = req.status.trim().toUpperCase();
+        return sheetEmail === queryEmail && status !== 'FINALIZADO';
+      });
 
       res.json(userRequests);
+
     } catch (error) {
-      console.error('Error fetching from Google Sheets:', error);
-      res.status(500).json({ error: 'Failed to fetch data from Google Sheets' });
+      console.error('Erro ao buscar dados da planilha:', error);
+      res.status(500).json({ error: 'Falha ao buscar dados da planilha.' });
     }
   });
 
-  // Vite middleware for development
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({
       server: { middlewareMode: true },
