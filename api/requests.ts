@@ -5,7 +5,6 @@ import { NextApiRequest, NextApiResponse } from 'next';
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   try {
     const redis = Redis.fromEnv();
-    // CORREÇÃO: Removido o JSON.parse() que causava o erro.
     const tokens: any = await redis.get('google_tokens');
     if (!tokens || !tokens.access_token) {
       return res.status(401).json({ error: 'Aplicação não autorizada. Por favor, autentique-se.' });
@@ -16,6 +15,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       process.env.GOOGLE_CLIENT_SECRET
     );
     oauth2Client.setCredentials(tokens);
+
+    oauth2Client.on('tokens', (newTokens) => {
+      console.log('[requests] Token de acesso foi atualizado.');
+      const updatedTokens = { ...tokens, ...newTokens };
+      redis.set('google_tokens', JSON.stringify(updatedTokens));
+      console.log('[requests] Token atualizado salvo no KV.');
+    });
 
     const { email } = req.query;
     if (!email) {
@@ -34,7 +40,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     const requests = rows.slice(1).map(row => ({
-      vehicle: row[2],
+      vehicle: row[2], // CORREÇÃO: Apontando para a coluna C (Número do Veículo)
       problem: row[4],
       email: row[5],
       status: row[6],
@@ -42,10 +48,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     const queryEmail = (email as string).trim().toLowerCase();
     const userRequests = requests.filter(req => {
-      if (!req.email || !req.status) return false;
+      if (!req.email) return false;
       const sheetEmail = req.email.trim().toLowerCase();
-      const status = req.status.trim().toUpperCase();
-      return sheetEmail === queryEmail && status !== 'FINALIZADO';
+      return sheetEmail === queryEmail;
     });
 
     res.status(200).json(userRequests);
