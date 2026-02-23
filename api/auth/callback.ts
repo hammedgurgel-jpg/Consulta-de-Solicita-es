@@ -5,24 +5,28 @@ import { NextApiRequest, NextApiResponse } from 'next';
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { code } = req.query;
 
-  const oauth2Client = new google.auth.OAuth2(
-    process.env.GOOGLE_CLIENT_ID,
-    process.env.GOOGLE_CLIENT_SECRET,
-    `${process.env.APP_URL}/api/auth/callback`
-  );
+  if (typeof code !== 'string') {
+    return res.status(400).json({ error: 'Código de autorização inválido.' });
+  }
 
   try {
-    console.log('[Callback] Recebido código de autorização do Google.');
-    const { tokens } = await oauth2Client.getToken(code as string);
-    console.log('[Callback] Tokens recebidos do Google com sucesso.');
+    const oauth2Client = new google.auth.OAuth2(
+      process.env.GOOGLE_CLIENT_ID,
+      process.env.GOOGLE_CLIENT_SECRET,
+      `${process.env.APP_URL}/api/auth/callback`
+    );
 
-    // Salva os tokens no Vercel KV. 'google_tokens' é a nossa chave.
+    const { tokens } = await oauth2Client.getToken(code);
+    oauth2Client.setCredentials(tokens);
+
     const redis = Redis.fromEnv();
     await redis.set('google_tokens', JSON.stringify(tokens));
-    console.log('[Callback] Tokens salvos no Vercel KV com sucesso!');
-    res.redirect('/?auth_status=success');
+    console.log('Tokens salvos no Redis com sucesso.');
+
+    res.redirect('/');
+
   } catch (error) {
-    console.error('Erro ao obter e salvar tokens:', error);
-    res.redirect('/?auth_status=error');
+    console.error('Erro ao obter tokens de acesso:', error);
+    res.status(500).json({ error: 'Falha ao autenticar com o Google.' });
   }
 }
