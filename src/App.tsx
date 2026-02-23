@@ -1,131 +1,111 @@
 import { useState, useEffect } from 'react';
-import { MaintenanceRequest } from './types';
 
-// Componente para a tela principal de busca
-const SearchInterface = () => {
-  const [email, setEmail] = useState('');
+interface MaintenanceRequest {
+  vehicle: string;
+  problem: string;
+  status: string;
+}
+
+function App() {
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [email, setEmail] = useState<string>('');
   const [requests, setRequests] = useState<MaintenanceRequest[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-  const [searched, setSearched] = useState(false);
+  const [searchError, setSearchError] = useState<string>('');
+  const [isSearching, setIsSearching] = useState<boolean>(false);
+
+  useEffect(() => {
+    // Verifica o status da autenticação quando o componente é montado
+    fetch('/api/auth/status')
+      .then(res => res.json())
+      .then(data => {
+        setIsAuthenticated(data.isAuthenticated);
+      })
+      .catch(() => setIsAuthenticated(false))
+      .finally(() => setIsLoading(false));
+  }, []);
 
   const handleSearch = async () => {
     if (!email) {
-      alert('Por favor, insira um e-mail.');
+      setSearchError('Por favor, insira um e-mail.');
       return;
     }
-    setLoading(true);
-    setError('');
+    setIsSearching(true);
+    setSearchError('');
     setRequests([]);
-    setSearched(false);
 
     try {
-      const response = await fetch(`/api/requests?email=${email}`);
-      const data = await response.json();
+      const response = await fetch(`/api/requests?email=${encodeURIComponent(email)}`);
       if (!response.ok) {
-        throw new Error(data.error || 'Falha ao buscar solicitações.');
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Falha ao buscar dados.');
       }
+      const data = await response.json();
       setRequests(data);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-      setSearched(true);
+      if (data.length === 0) {
+        setSearchError('Nenhuma solicitação encontrada para este e-mail.');
+      }
+    } catch (error: any) {
+      setSearchError(error.message || 'Falha ao buscar dados da planilha.');
+    }
+    finally {
+      setIsSearching(false);
     }
   };
 
-  return (
-    <div className="bg-white shadow-md rounded-lg p-8">
-      <h1 className="text-3xl font-bold text-center text-gray-800 mb-2">Consulta de Manutenção</h1>
-      <p className="text-center text-gray-500 mb-6">Consulte o status das solicitações de manutenção de veículos.</p>
-      <div className="flex gap-4 mb-4">
+  const renderLogin = () => (
+    <div className="bg-white p-8 rounded-xl shadow-md w-full max-w-md">
+      <h2 className="text-2xl font-bold text-center text-gray-800 mb-4">Autorização Necessária</h2>
+      <p className="text-center text-gray-600 mb-6">Para que esta aplicação possa ler os dados da sua Planilha Google, você precisa conceder a permissão.</p>
+      <a href="/api/auth/google" className="w-full bg-blue-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-blue-700 transition-colors text-center block">
+        Conectar com Google e Autorizar
+      </a>
+      <p className="text-center text-xs text-gray-500 mt-4">Você será redirecionado para uma página segura do Google para fazer login e conceder a permissão de leitura.</p>
+    </div>
+  );
+
+  const renderQuery = () => (
+    <div className="bg-white p-8 rounded-xl shadow-md w-full max-w-lg">
+      <h1 className="text-2xl font-bold text-center text-gray-800 mb-2">Consulta de Manutenção</h1>
+      <p className="text-center text-gray-600 mb-6">Consulte o status das solicitações de manutenção de veículos.</p>
+      <div className="flex flex-col sm:flex-row gap-4 mb-4">
         <input
           type="email"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
-          placeholder="Digite o e-mail do motorista"
-          className="flex-grow p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+          placeholder="Digite o e-mail cadastrado"
+          className="flex-grow px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
         />
         <button
           onClick={handleSearch}
-          disabled={loading}
-          className="bg-blue-600 text-white px-6 py-3 rounded-md font-semibold hover:bg-blue-700 disabled:bg-blue-300 transition-colors"
+          disabled={isSearching}
+          className="bg-blue-600 text-white font-bold py-3 px-6 rounded-lg hover:bg-blue-700 transition-colors disabled:bg-gray-400"
         >
-          {loading ? 'Buscando...' : 'Buscar'}
+          {isSearching ? 'Buscando...' : 'Buscar'}
         </button>
       </div>
-
-      {error && <p className="text-red-500 text-center mb-4">{error}</p>}
-
-      <div className="space-y-4">
+      {searchError && <p className="text-red-500 text-center mb-4">{searchError}</p>}
+      <div className="mt-6 space-y-4">
         {requests.map((req, index) => (
-          <div key={index} className="bg-gray-50 p-4 rounded-md border border-gray-200">
+          <div key={index} className="bg-gray-50 p-4 rounded-lg border border-gray-200">
             <p><strong>Veículo:</strong> {req.vehicle}</p>
             <p><strong>Problema:</strong> {req.problem}</p>
             <p><strong>Status:</strong> {req.status}</p>
           </div>
         ))}
       </div>
-
-      {searched && requests.length === 0 && !loading && (
-        <p className="text-center text-gray-500">Nenhuma solicitação encontrada para este e-mail.</p>
-      )}
     </div>
   );
-};
 
-// Componente para a tela de autorização
-const AuthInterface = () => {
-  return (
-    <div className="bg-white shadow-md rounded-lg p-8 text-center">
-      <h1 className="text-3xl font-bold text-gray-800 mb-2">Autorização Necessária</h1>
-      <p className="text-gray-500 mb-6">Para que esta aplicação possa ler os dados da sua Planilha Google, você precisa conceder a permissão.</p>
-      <a 
-        href="/api/auth/google"
-        className="inline-block bg-blue-600 text-white px-6 py-3 rounded-md font-semibold hover:bg-blue-700 transition-colors"
-      >
-        Conectar com Google e Autorizar
-      </a>
-      <p className="text-xs text-gray-400 mt-4">Você será redirecionado para uma página segura do Google para fazer login e conceder a permissão de leitura.</p>
-    </div>
-  );
-};
-
-function App() {
-  const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
-
-  useEffect(() => {
-    // Verifica o status da autenticação quando o app carrega
-    const checkAuthStatus = async () => {
-      try {
-        const response = await fetch('/api/auth/status');
-        const data = await response.json();
-        setIsAuthenticated(data.isAuthenticated);
-      } catch (error) {
-        console.error('Erro ao verificar status da autenticação:', error);
-        setIsAuthenticated(false);
-      }
-    };
-    checkAuthStatus();
-  }, []);
-
-  // Mostra uma tela de carregamento enquanto verifica a autenticação
-  if (isAuthenticated === null) {
-    return (
-      <div className="min-h-screen bg-gray-100 flex items-center justify-center">
-        <p className="text-gray-500">Verificando autenticação...</p>
-      </div>
-    );
+  if (isLoading) {
+    return <div className="flex items-center justify-center min-h-screen bg-gray-100 text-gray-800">Carregando...</div>;
   }
 
   return (
-    <div className="min-h-screen bg-gray-100 flex items-center justify-center p-4">
-      <div className="w-full max-w-2xl mx-auto">
-        {isAuthenticated ? <SearchInterface /> : <AuthInterface />}
-      </div>
-    </div>
+    <main className="flex items-center justify-center min-h-screen bg-gray-100 p-4">
+      {isAuthenticated ? renderQuery() : renderLogin()}
+    </main>
   );
 }
 
 export default App;
-
