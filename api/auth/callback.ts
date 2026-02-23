@@ -12,11 +12,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   );
 
   try {
+    console.log('[Callback] Recebido código de autorização do Google.');
     const { tokens } = await oauth2Client.getToken(code as string);
+    console.log('[Callback] Tokens recebidos do Google com sucesso.');
+
     // Salva os tokens no Vercel KV. 'google_tokens' é a nossa chave.
     const redis = Redis.fromEnv();
     await redis.set('google_tokens', JSON.stringify(tokens));
-    console.log('Tokens salvos no Vercel KV com sucesso!');
+    console.log('[Callback] Tokens salvos no Vercel KV com sucesso!');
     res.redirect('/?auth_status=success');
   } catch (error) {
     console.error('Erro ao obter e salvar tokens:', error);
