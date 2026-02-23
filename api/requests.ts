@@ -5,8 +5,7 @@ import { NextApiRequest, NextApiResponse } from 'next';
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   try {
     const redis = Redis.fromEnv();
-    const tokensStr: string | null = await redis.get('google_tokens');
-    const tokens = tokensStr ? JSON.parse(tokensStr) : null;
+    const tokens: any = await redis.get('google_tokens')
     if (!tokens || !tokens.access_token) {
       return res.status(401).json({ error: 'Aplicação não autorizada. Por favor, autentique-se.' });
     }
